@@ -149,15 +149,23 @@ interface IERC20 {
 }
 
 /**is IERC20, IERC20Metadata */
-contract TokenERC20_1 {
+contract TokenERC20_1 is IERC20, IERC20Metadata, AccessControlLearning {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     uint256 totalMinted;
 
     // mapping de balances
+    mapping(address => uint256) balances;
 
     // mapping de permisos
     // owner => spender => amount
+    mapping(address => mapping(address => uint256)) allowances;
+    // mapping(address => mapping(address => bool)) allowancePermissions;
+
+    string name_;
+    string symbol_;
+    uint8 decimals_;
+
 
     // 3. Nombre, símbolo y decimales serán incluidos en el smart contract a través del constructor
     constructor(
@@ -165,28 +173,50 @@ contract TokenERC20_1 {
         string memory _symbol,
         uint8 _decimals
     ) {
-        // name_ = _name;
-        // symbol_ = _symbol;
-        // decimals_ = _decimals;
+        name_ = _name;
+        symbol_ = _symbol;
+        decimals_ = _decimals;
     }
 
     /////////////////////////////////////////////////////////////////////////////
     ///////////     2. Heredar la interface IERC20Metadata            ///////////
     /////////////////////////////////////////////////////////////////////////////
-    function name() public view returns (string memory) {}
+    function name() public view returns (string memory) {
+        return name_;
+    }
 
     // symbol
+    function symbol() public view returns (string memory) {
+        return symbol_;
+    }
 
     // decimals
+    function decimals() public view returns (uint8) {
+        return decimals_;
+    }
 
     /////////////////////////////////////////////////////////////////////////////
     ///////////         1.  Heredar la interface IERC20               ///////////
     /////////////////////////////////////////////////////////////////////////////
-    function totalSupply() public view returns (uint256) {}
+    function totalSupply() public view returns (uint256) {
+        return totalMinted;
+    }
 
-    function balanceOf(address account) public view returns (uint256) {}
+    function balanceOf(address account) public view returns (uint256) {
+        return balances[account];
+    }
 
     function transfer(address to, uint256 amount) public returns (bool) {
+        
+        uint256 balance = balances[msg.sender];
+
+        require(balance >= amount, "Insuficientes fondos");
+
+        balances[msg.sender] -= amount;
+        balances[to] += amount;
+
+        emit Transfer(msg.sender, to, amount);
+
         return true;
     }
 
@@ -194,9 +224,22 @@ contract TokenERC20_1 {
         public
         view
         returns (uint256)
-    {}
+    {
+        // require(allowancePermissions[owner][spender], "Cuenta no autorizada");
+        
+        return allowances[owner][spender];
+    }
 
     function approve(address spender, uint256 amount) public returns (bool) {
+
+        require(spender != address(0), "Spender no puede ser zero");
+        // require(!allowancePermissions[msg.sender][spender], "Cuenta ya autorizada");
+        require(msg.sender != spender, "Propietario no puede autorizarse a si mismo");
+
+        allowances[msg.sender][spender] = amount;
+
+        emit Approval(msg.sender, spender, amount);
+
         return true;
     }
 
@@ -205,6 +248,24 @@ contract TokenERC20_1 {
         address to,
         uint256 amount
     ) public returns (bool) {
+
+        // require(allowancePermissions[from][msg.sender], "Cuenta no autorizada");
+
+        uint256 allowedBalance = allowances[from][msg.sender];
+
+        require(allowedBalance >= amount, "No tiene permiso para transferir");
+
+        uint256 balance = balanceOf(from);
+
+        require(balance >= amount, "Insuficientes fondos");
+
+        balances[from] -= amount;
+        balances[to] += amount;
+
+        allowances[from][msg.sender] -= amount;
+
+        emit Transfer(from, to, amount);
+
         return true;
     }
 
@@ -213,15 +274,57 @@ contract TokenERC20_1 {
     /////////////////////////////////////////////////////////////////////////////
 
     // 3. mint
-    function mint(address to, uint256 amount) public {}
+    function mint(address to, uint256 amount) public {
+        require(to != address(0), "Mint a favor del address zero");
+
+        balances[to] += amount;
+        totalMinted += amount;
+
+        emit Transfer(address(0), to, amount);
+    }
 
     // 4. burn
-    function burn(uint256 amount) public {}
+    function burn(uint256 amount) public {
+        require(msg.sender != address(0), "Se quema tokens de address zero");
+
+        uint256 balance = balanceOf(msg.sender);
+
+        require(balance >= amount, "Cuenta no tiene suficientes tokens");
+
+        balances[msg.sender] -= amount;
+        totalMinted -= amount;
+
+        emit Transfer(msg.sender, address(0), amount);
+    }
 
     // EXTRA
-    // function decreaseAllowance(address spender, uint256 subtractedValue) public returns (bool){}
+    function decreaseAllowance(address spender, uint256 subtractedValue) public returns (bool){
 
-    // function increaseAllowance(address spender, uint256 addedValue) public  returns (bool){}
+        // require(allowancePermissions[msg.sender][spender], "Cuenta no autorizada");
 
-    // function mintProtected(address to, uint256 amount) public onlyRole(MINTER_ROLE) {}
+        uint256 allowedBalance = allowances[msg.sender][spender];
+
+        require(allowedBalance >= subtractedValue, "Cantidad permitida insuficiente");
+
+        allowances[msg.sender][spender] -= subtractedValue;
+
+        emit Approval(msg.sender, spender, allowances[msg.sender][spender]);
+
+        return true;
+    }
+
+    function increaseAllowance(address spender, uint256 addedValue) public  returns (bool){
+
+        // require(allowancePermissions[msg.sender][spender], "Cuenta no autorizada");
+
+        allowances[msg.sender][spender] += addedValue;
+
+        emit Approval(msg.sender, spender, allowances[msg.sender][spender]);
+
+        return true;
+    }
+
+    function mintProtected(address to, uint256 amount) public onlyRole(MINTER_ROLE) {
+        mint(to, amount);
+    }
 }

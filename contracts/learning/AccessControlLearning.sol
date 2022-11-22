@@ -72,48 +72,83 @@ contract AccessControlLearning {
     //    Continúa con el otro elemnto "_ñ"
     modifier onlyRole(bytes32 _role) {
         // Roles temporales
-        // require(hasRole, "Cuenta no tiene el rol necesario");
+        require(hasRole(msg.sender, _role), "Cuenta no tiene el rol necesario");
         _;
     }
 
     // 6.
-    // event TransferOwnership
-    // event RenounceOwnership
+    event TransferOwnership(address _prevOwner, address _newOwner);
+    event RenounceOwnership(address _prevOwner);
 
     // 1. definir un mapping doble para guardar datos en una matriz
     // mapping 1 -> address => role
     // mapping 2 -> role => boolean
+    mapping(address => mapping(bytes32 => bool)) private _roles;
+    mapping(address => mapping(bytes32 => uint256)) private temporarilyRole;
 
     // 5. utilizar el constructor para inicializar valores
     constructor() {
-        // _roles[msg.sender][DEFAULT_ADMIN_ROLE] = true;
+        _roles[msg.sender][DEFAULT_ADMIN_ROLE] = true;
     }
 
     // 2. definir metodo de lectura de datos de la matriz llamado 'hasRole'
     //    debe ser un metodo que se puede heredar y también puede ser llamado de afuera (público)
     //    es un método de solo consulta
-    // function hasRole(address _account, bytes32 role)
-    //     public
-    //     view
-    //     returns (bool);
+    function hasRole(address _account, bytes32 role)
+        public
+        view
+        returns (bool)
+    {
+        return _roles[_account][role];
+    }
 
     // 3. definir método para escribir datos en la matriz llamado 'grantRole'
     //    metodo protegido por el modifier 'onlyRole(DEFAULT_ADMIN_ROLE)'
     //    método público, puede ser heredado. es de escritura
-    // function grantRole(address _account, bytes32 role) public;
+    function grantRole(address _account, bytes32 role)
+        public
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _roles[_account][role] = true;
+
+        (bool hasTempRole, uint256 adminLimit) = hasTemporaryRole(
+            msg.sender,
+            role
+        );
+
+        if (hasTempRole) {
+            adminLimit -= 1;
+            temporarilyRole[msg.sender][role] = adminLimit;
+            if (adminLimit == 0) {
+                _roles[msg.sender][role] = false;
+            }
+        }
+    }
 
     // 6. Crear un método que se llame 'transferOwnership(address _newOwner)'
     //    Recibe un argumento: el address del nuevo owner
     //    Solo Puede ser llamado por una cuenta admin
     //    La cuenta admin transfiere sus derechos de admin a '_newOwner'
     //    Dispara el evento 'TransferOwnership(address _prevOwner, address _newOwner)'
-    // function transferOwnership(address _newOwner) public;
+    function transferOwnership(address _newOwner)
+        public
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _roles[msg.sender][DEFAULT_ADMIN_ROLE] = false;
+        _roles[_newOwner][DEFAULT_ADMIN_ROLE] = true;
+
+        emit TransferOwnership(msg.sender, _newOwner);
+    }
 
     // 7. Crear un método lalmada 'renounceOwnership'
     //    La cuenta que lo llama es una cuenta admin
     //    Esta cuenta renuncia su derecho a ser admin
     //    Dispara un evento RenounceOwnership(msg.sender)
-    // function renounceOwnership() public;
+    function renounceOwnership() public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _roles[msg.sender][DEFAULT_ADMIN_ROLE] = false;
+
+        emit RenounceOwnership(msg.sender);
+    }
 
     // 8. Crear un método llamado 'grantRoleTemporarily'
     //    Este metodo solo es llamado por una cuenta 'admin'
@@ -126,7 +161,14 @@ contract AccessControlLearning {
         bytes32 _role,
         uint256 _limit
     ) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(_limit >= 1, "El limite es mayor a 1");
+        require(_limit >= 1, "El limite debe ser mayor que uno");
+        uint256 limit = temporarilyRole[_account][_role];
+        require(
+            limit == 0 && !_roles[_account][_role],
+            "Esta cuenta ya tiene un limite asignado"
+        );
+        temporarilyRole[_account][_role] = _limit;
+        _roles[_account][_role] = true;
     }
 
     //  9. Definir su getter llamado 'hasTemporaryRole(address _account, bytes32 _role) returns (bool, uint256)'
@@ -139,6 +181,7 @@ contract AccessControlLearning {
         view
         returns (bool, uint256)
     {
-        return (false, 0);
+        uint256 limit = temporarilyRole[_account][_role];
+        return (limit > 0 && _roles[_account][_role], limit);
     }
 }
